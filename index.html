@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Colonel Blotto Lab</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Colonel Blotto Lab</h1>
+      <p class="sub">Split your soldiers across castles. Whoever sends more to a castle wins its points. Play a single match step by step, or run whole tournaments, evolution and equilibrium searches live.</p>
+    </div>
+    <button id="themeBtn" class="btn ghost" type="button" aria-label="Toggle colour theme">◐ Theme</button>
+  </header>
+
+  <!-- ===================== RULES ===================== -->
+  <section class="card rules" aria-label="Game rules">
+    <div class="rules-row">
+      <div class="field">
+        <span class="label">Variant</span>
+        <div class="seg" role="radiogroup" id="modeSeg">
+          <button type="button" data-mode="classic" class="on">Classic</button>
+          <button type="button" data-mode="penalty">Jane Street penalty</button>
+        </div>
+      </div>
+      <label class="field"><span class="label">Castles</span><input id="rN" type="number" min="2" max="20" value="10"></label>
+      <label class="field"><span class="label">Soldiers each</span><input id="rS" type="number" min="5" max="300" value="100"></label>
+      <label class="field pen-only"><span class="label">Penalty per extra soldier</span><input id="rL" type="number" step="0.05" min="0" value="0.2"></label>
+      <label class="field pen-only"><span class="label">Extra soldiers are counted as</span>
+        <select id="rBasis">
+          <option value="margin">mine − theirs</option>
+          <option value="minimum">mine − theirs − 1 (first winning soldier is free)</option>
+        </select>
+      </label>
+      <label class="field"><span class="label">Ties</span>
+        <select id="rTies">
+          <option value="none">nobody scores</option>
+          <option value="split">split the points</option>
+        </select>
+      </label>
+      <label class="field check"><input id="rStreak" type="checkbox"> <span>Win <input id="rStreakLen" type="number" min="2" max="9" value="3" class="tiny"> in a row → take every remaining castle</span></label>
+    </div>
+    <p class="rule-text" id="ruleText"></p>
+  </section>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="h2h" class="on">1 · Head to head</button>
+    <button role="tab" data-tab="tour">2 · Tournament</button>
+    <button role="tab" data-tab="evo">3 · Evolution</button>
+    <button role="tab" data-tab="fp">4 · Equilibrium search</button>
+    <button role="tab" data-tab="learn">How it works</button>
+  </nav>
+
+  <main>
+    <!-- ===================== HEAD TO HEAD ===================== -->
+    <section class="tab-panel on" id="tab-h2h">
+      <div class="grid two">
+        <div class="card">
+          <h2>Allocations</h2>
+          <div class="alloc-tools">
+            <div class="who a"><span class="dot"></span>Player A
+              <select id="presetA" aria-label="Preset for A"></select>
+              <button class="btn small" data-rand="A" type="button">Random</button>
+              <button class="btn small" data-br="A" type="button" title="Best possible reply to B's current allocation">Best reply to B</button>
+            </div>
+            <div class="who b"><span class="dot"></span>Player B
+              <select id="presetB" aria-label="Preset for B"></select>
+              <button class="btn small" data-rand="B" type="button">Random</button>
+              <button class="btn small" data-br="B" type="button" title="Best possible reply to A's current allocation">Best reply to A</button>
+            </div>
+          </div>
+          <div class="scroll"><table class="alloc-table" id="allocTable"></table></div>
+          <p class="hint">Type numbers or use the arrow keys. Each player must use exactly all their soldiers.</p>
+        </div>
+        <div class="card">
+          <h2>Soldiers per castle</h2>
+          <div class="legend"><span class="lg a"></span>A <span class="lg b"></span>B</div>
+          <div class="chart-box"><canvas id="chAlloc"></canvas></div>
+          <h2 class="mt">Running score, castle by castle</h2>
+          <div class="legend"><span class="lg a"></span>A <span class="lg b"></span>B</div>
+          <div class="chart-box short"><canvas id="chRun"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="bar-head">
+          <h2>Step-by-step match</h2>
+          <div class="controls">
+            <button class="btn" id="hReset" type="button">⏮ Reset</button>
+            <button class="btn" id="hStep" type="button">Next castle ⏭</button>
+            <button class="btn primary" id="hPlay" type="button">▶ Play</button>
+            <button class="btn" id="hAll" type="button">Show all</button>
+            <label class="inline">Speed
+              <select id="hSpeed"><option value="1400">slow</option><option value="700" selected>normal</option><option value="250">fast</option></select>
+            </label>
+          </div>
+        </div>
+        <div class="narration" id="narration" aria-live="polite">Press <b>Next castle</b> or <b>Play</b> to start the battle.</div>
+        <div class="scroll"><table class="calc" id="calcTable"></table></div>
+        <div class="summary" id="summary"></div>
+      </div>
+
+      <div class="card hidden" id="brCard">
+        <h2>How the best reply was calculated</h2>
+        <div id="brExplain"></div>
+      </div>
+    </section>
+
+    <!-- ===================== TOURNAMENT ===================== -->
+    <section class="tab-panel" id="tab-tour">
+      <div class="card">
+        <div class="bar-head">
+          <h2>Round-robin tournament</h2>
+          <div class="controls">
+            <label class="inline">Random entrants <input id="tK" type="number" min="0" max="400" value="60" class="num"></label>
+            <label class="inline"><input id="tPresets" type="checkbox" checked> presets</label>
+            <label class="inline"><input id="tAB" type="checkbox" checked> your A &amp; B</label>
+            <label class="inline"><input id="tChamp" type="checkbox" checked> evolved / equilibrium picks</label>
+            <label class="inline">Seed <input id="tSeed" type="number" value="42" class="num"></label>
+            <label class="inline">Speed
+              <select id="tSpeed"><option value="1">1 match/frame</option><option value="10">10/frame</option><option value="80" selected>80/frame</option><option value="1000">max</option></select>
+            </label>
+            <button class="btn primary" id="tRun" type="button">▶ Run</button>
+            <button class="btn" id="tReset" type="button">Reset</button>
+          </div>
+        </div>
+        <p class="hint">Every entrant plays every other entrant once. A match win is worth 1, a draw ½, a loss 0. Win % = match points ÷ matches played.</p>
+        <div class="progress"><div id="tProg"></div></div>
+        <div class="kpis" id="tKpis"></div>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <h2>Live match</h2>
+          <div id="tLive" class="live"></div>
+        </div>
+        <div class="card">
+          <h2>Leaderboard — top 15 by win %</h2>
+          <div class="chart-box tall"><canvas id="chLeader"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Full standings</h2>
+        <div class="scroll"><table class="data" id="tTable"></table></div>
+      </div>
+    </section>
+
+    <!-- ===================== EVOLUTION ===================== -->
+    <section class="tab-panel" id="tab-evo">
+      <div class="card">
+        <div class="bar-head">
+          <h2>Genetic algorithm</h2>
+          <div class="controls">
+            <label class="inline">Population <input id="ePop" type="number" min="10" max="200" value="60" class="num"></label>
+            <label class="inline">Elite % <input id="eElite" type="number" min="5" max="60" value="20" class="num"></label>
+            <label class="inline">Mutation rate <input id="eMut" type="number" min="0" max="1" step="0.05" value="0.6" class="num"></label>
+            <label class="inline">Max soldiers moved <input id="eMove" type="number" min="1" max="30" value="4" class="num"></label>
+            <label class="inline">Fitness vs
+              <select id="eField"><option value="pop">population only</option><option value="mix" selected>population + benchmark field</option></select>
+            </label>
+            <label class="inline">Seed <input id="eSeed" type="number" value="7" class="num"></label>
+            <label class="inline">Speed
+              <select id="eSpeed"><option value="600">slow</option><option value="120" selected>normal</option><option value="0">max</option></select>
+            </label>
+            <button class="btn primary" id="eRun" type="button">▶ Run</button>
+            <button class="btn" id="eStep" type="button">1 generation</button>
+            <button class="btn" id="eReset" type="button">Reset</button>
+          </div>
+        </div>
+        <p class="hint">Each generation: everyone plays everyone → rank by fitness → keep the elite → breed children by tournament selection, crossover and mutation. The <b>benchmark field</b> is a fixed set (presets + 100 random strategies) used to measure progress fairly from generation to generation.</p>
+        <div class="kpis" id="eKpis"></div>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <h2>Win % against the fixed benchmark field</h2>
+          <div class="legend"><span class="lg a"></span>Champion <span class="lg b"></span>Population average</div>
+          <div class="chart-box"><canvas id="chEvo"></canvas></div>
+        </div>
+        <div class="card">
+          <h2>Average soldiers per castle, by generation</h2>
+          <div class="heat-wrap"><canvas id="hmEvo" class="heat"></canvas><div class="tip" id="hmEvoTip"></div></div>
+          <div class="ramp-legend"><span>fewer</span><i class="ramp"></i><span>more soldiers</span></div>
+        </div>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <h2>Current champion <button class="btn small" id="eToA" type="button">Send to A</button></h2>
+          <div class="chart-box short"><canvas id="chChamp"></canvas></div>
+          <div id="eChampTxt" class="mono"></div>
+        </div>
+        <div class="card">
+          <h2>What happened this generation</h2>
+          <div id="eLog" class="log"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== FICTITIOUS PLAY ===================== -->
+    <section class="tab-panel" id="tab-fp">
+      <div class="card">
+        <div class="bar-head">
+          <h2>Fictitious play — approximating the Nash equilibrium</h2>
+          <div class="controls">
+            <label class="inline">Start from <select id="fStart"></select></label>
+            <label class="inline">Speed
+              <select id="fSpeed"><option value="500">slow</option><option value="60" selected>normal</option><option value="0">max</option></select>
+            </label>
+            <button class="btn primary" id="fRun" type="button">▶ Run</button>
+            <button class="btn" id="fStep" type="button">1 iteration</button>
+            <button class="btn" id="fReset" type="button">Reset</button>
+          </div>
+        </div>
+        <p class="hint">Keep a growing bag of strategies (the “mixture”). Each iteration, compute the <b>exact best reply</b> to the whole bag and add it. The best reply’s average edge over the bag measures how <b>exploitable</b> the mix still is; in a Nash equilibrium nothing can beat it, so the edge falls toward 0.</p>
+        <div class="kpis" id="fKpis"></div>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <h2>Exploitability — best reply’s average point edge</h2>
+          <div class="chart-box"><canvas id="chFP"></canvas></div>
+        </div>
+        <div class="card">
+          <h2>Mixture: average soldiers per castle</h2>
+          <div class="chart-box"><canvas id="chFPMean"></canvas></div>
+        </div>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <h2>How often the mixture sends each troop count</h2>
+          <div class="heat-wrap"><canvas id="hmFP" class="heat"></canvas><div class="tip" id="hmFPTip"></div></div>
+          <div class="ramp-legend"><span>never</span><i class="ramp"></i><span>often</span></div>
+        </div>
+        <div class="card">
+          <h2>Expected gain curve for castle <select id="fCastle"></select></h2>
+          <div class="chart-box"><canvas id="chFPCurve"></canvas></div>
+          <p class="hint" id="fCurveTxt"></p>
+        </div>
+      </div>
+      <div class="card">
+        <h2>This iteration, step by step <button class="btn small" id="fToA" type="button">Send best reply to A</button></h2>
+        <div id="fLog" class="log"></div>
+      </div>
+    </section>
+
+    <!-- ===================== LEARN ===================== -->
+    <section class="tab-panel" id="tab-learn">
+      <div class="card prose">
+        <h2>The game</h2>
+        <p>Two colonels each split <b>S</b> soldiers across <b>n</b> castles worth <i>v</i><sub>1</sub>…<i>v</i><sub>n</sub> points (here castle <i>i</i> is worth <i>i</i>). Both choose at the same time and in secret. On each castle, more soldiers wins. A tie scores for nobody (or splits, if you pick that). Whoever has more points wins the match.</p>
+        <div class="formula">Classic: &nbsp; score<sub>A</sub> = Σ<sub>i : a<sub>i</sub> &gt; b<sub>i</sub></sub> v<sub>i</sub></div>
+
+        <h2>The Jane Street penalty variant</h2>
+        <p>Overkill costs you. On every castle you win, you lose <b>λ = 0.2</b> points for each soldier you have <i>above your opponent’s count</i>:</p>
+        <div class="formula">Penalty: &nbsp; score<sub>A</sub> = Σ<sub>i : a<sub>i</sub> &gt; b<sub>i</sub></sub> ( v<sub>i</sub> − λ · (a<sub>i</sub> − b<sub>i</sub>) )</div>
+        <p>Read literally, even the winning margin of 1 costs 0.2. Some versions charge only for soldiers <i>beyond</i> the one you needed, i.e. (a − b − 1). Both are in the rules bar. Either way, a win by 40 soldiers on castle 9 is worth 9 − 8 = 1 point instead of 9. Stacking soldiers on a castle you already hold is now actively harmful, so good strategies spread out and try to win by small margins.</p>
+
+        <h2>Why no allocation is “the best”</h2>
+        <p>Every pure allocation can be beaten. If B shows you their plan, you can take back one soldier from some castles and add one where it flips a loss into a win. Tab 1’s <b>Best reply</b> button does exactly that. So the game has no pure-strategy equilibrium. Its equilibria are <i>mixed</i>: probability distributions over allocations. Borel (1921) and Roberson (2006) solved the continuous, equal-value case. The discrete, unequal-value case here has no closed form, which is why we simulate.</p>
+
+        <h2>Best reply by dynamic programming</h2>
+        <p>Against a known opponent, or a known <i>bag</i> of opponents, each castle’s expected point differential depends only on how many soldiers you put there:</p>
+        <div class="formula">f<sub>i</sub>(x) = (1/m) Σ<sub>j=1..m</sub> diff(x, b<sub>j,i</sub>, v<sub>i</sub>), &nbsp; diff = +(my points) if x &gt; b; &nbsp;−(their points) if x &lt; b; &nbsp;0 if tie</div>
+        <p>We want to maximise Σ f<sub>i</sub>(x<sub>i</sub>) subject to Σ x<sub>i</sub> = S. That is a knapsack, solved exactly by</p>
+        <div class="formula">D[i+1][s+x] = max( D[i+1][s+x], D[i][s] + f<sub>i</sub>(x) ), &nbsp; answer D[n][S]</div>
+        <p>This takes n·S²/2 ≈ 50,000 steps for 10 castles and 100 soldiers. The streak rule (“3 in a row takes the rest”) breaks the castle-by-castle sum, so with it switched on the best reply is an approximation. Match scores always use the full rules.</p>
+
+        <h2>The three live simulations</h2>
+        <ul>
+          <li><b>Tournament:</b> a FiveThirtyEight-“Riddler”-style round robin. Shows which simple ideas do well against a mixed field.</li>
+          <li><b>Evolution:</b> a genetic algorithm. Fitness = win % in a round robin. Parents are picked by 3-way tournament selection. Crossover takes each castle from a random parent, then a repair step restores the total of S. Mutation moves a few soldiers between castles. Elites survive unchanged.</li>
+          <li><b>Fictitious play:</b> repeatedly best-reply to the mixture of everything played so far. Brown and Robinson showed that in two-player zero-sum games the empirical mixture converges to a Nash equilibrium. Exploitability is the best reply’s edge, and it falls toward 0.</li>
+        </ul>
+        <p class="hint">Engine tests: <code>node test/engine.test.js</code></p>
+      </div>
+    </section>
+  </main>
+
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
